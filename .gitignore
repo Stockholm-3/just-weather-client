@@ -1,0 +1,34 @@
+# Build artifacts
+build/
+*.o
+*.d
+*.a
+*.so
+
+# Executables
+just-weather-client
+*.exe
+*.out
+
+# Cache
+src/cache/*.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.bak
+*.log
+
+# Dependencies (will be created by symlink)
+lib/jansson
+includes/jansson_config.h

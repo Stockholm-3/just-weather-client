@@ -37,7 +37,7 @@
  *   hash_md5_string("Stockholm59.329318.0686", hash, sizeof(hash));
  *   // hash = "e7a8b9c0d1f2a3b4c5d6e7f8a9b0c1d2"
  */
-int hash_md5_string(const void* data, size_t data_size, char* output,
+int hash_md5_string(const void *data, size_t data_size, char *output,
                     size_t output_size);
 
 /**
@@ -49,7 +49,7 @@ int hash_md5_string(const void* data, size_t data_size, char* output,
  * HASH_MD5_BINARY_LENGTH bytes)
  * @return 0 on success, -1 on error
  */
-int hash_md5_binary(const void* data, size_t data_size, unsigned char* output);
+int hash_md5_binary(const void *data, size_t data_size, unsigned char *output);
 
 /**
  * Convert binary hash to hex string
@@ -60,7 +60,7 @@ int hash_md5_binary(const void* data, size_t data_size, unsigned char* output);
  * @param output_size Size of output buffer
  * @return 0 on success, -1 on error
  */
-int hash_md5_binary_to_string(const unsigned char* binary, char* output,
+int hash_md5_binary_to_string(const unsigned char *binary, char *output,
                               size_t output_size);
 
 #endif /* HASH_MD5_H */
