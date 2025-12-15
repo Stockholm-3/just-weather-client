@@ -20,21 +20,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libcurl4-openssl-dev
+          make install-lib
 
-      - name: Setup jansson library
-        run: |
-          # Clone jansson library directly to lib/jansson
-          mkdir -p lib
-          git clone https://github.com/Stockholm-3/lib.git temp_lib
-          cp -r temp_lib/jansson lib/
-          rm -rf temp_lib
-          # Copy jansson_config.h to jansson directory (REQUIRED!)
-          cp includes/jansson_config.h lib/jansson/
-          # Verify setup
-          echo "=== lib directory ==="
-          ls -la lib/
-          echo "=== jansson directory ==="
-          ls -la lib/jansson/ | head -20
 
       - name: Build
         run: |

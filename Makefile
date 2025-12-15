@@ -368,21 +368,7 @@ lint-ci:
 
 .PHONY: install-lib
 install-lib:
-	@echo "Creating symlink to jansson library..."
-	@mkdir -p lib includes
-	@if [ ! -L "lib/jansson" ]; then \
-		ln -sf ../../lib/jansson lib/jansson && \
-		echo "Symlink to jansson library created"; \
-	else \
-		echo "Jansson library symlink already exists"; \
-	fi
-	@if [ ! -f "includes/jansson_config.h" ] && [ -f "../just-weather/includes/jansson_config.h" ]; then \
-		cp ../just-weather/includes/jansson_config.h includes/ && \
-		echo "jansson_config.h copied"; \
-	else \
-		echo "jansson_config.h already exists"; \
-	fi
-	@echo "Library setup complete"
+	git clone https://github.com/stockholm-3/lib.git ../lib
 
 # ------------------------------------------------------------
 # Dependencies
