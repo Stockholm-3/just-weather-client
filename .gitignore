@@ -12,6 +12,8 @@ just-weather-client
 
 # Cache
 src/cache/*.json
+.cache/
+compile_commands.json
 
 # IDE
 .vscode/

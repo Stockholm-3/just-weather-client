@@ -24,7 +24,7 @@ int main(int argc, char* argv[]) {
     int         exit_code = 0;
 
     if (strcmp(command, "interactive") == 0 || strcmp(command, "-i") == 0) {
-        cli_interactive_mode(client);
+        cli_interactive_mode();
     } else {
         exit_code = cli_execute_command(client, argc, argv);
         if (exit_code == EXIT_INVALID_ARGS) {

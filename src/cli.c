@@ -30,7 +30,36 @@ void cli_print_usage(const char* prog_name) {
     printf("  %s interactive\n", prog_name);
 }
 
-void cli_interactive_mode(WeatherClient* client) {
+void cli_interactive_mode() {
+    // Initialize WeatherClient
+    char server_address[256];
+    int  server_port;
+    printf("\nSpecify backend\n");
+    printf("Address to server:\n");
+    int ref = scanf("%s", server_address);
+    if (ref != 1) {
+        fprintf(stderr, "invalid server address input\n");
+        return;
+    }
+    printf("Server port:\n");
+    ref = scanf("%d", &server_port);
+    if (ref != 1) {
+        fprintf(stderr, "invalid server port input\n");
+        return;
+    }
+    WeatherClient* client = weather_client_create(server_address, server_port);
+    if (!client) {
+        fprintf(stderr, "Failed to create weather client\n");
+    }
+    char* error = NULL;
+
+    // echo to see if connection is ok
+    json_t* result = weather_client_echo(client, &error);
+    if (!result) {
+        fprintf(stderr, "Error: %s\n", error ? error : "Unknown error");
+        free(error);
+        return;
+    }
     char line[1024];
 
     printf("Just Weather Interactive Client\n");
