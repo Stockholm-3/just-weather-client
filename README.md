@@ -1,9 +1,5 @@
 # Just Weather Client
 
-Weather client application написаний на C.
-
-# Just Weather Client
-
 A weather client application written in C.
 
 ## Build
