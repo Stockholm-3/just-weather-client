@@ -1,3 +1,10 @@
+/**
+ * @file client_tcp.c
+ * @brief TCP client implementation
+ *
+ * Implementation of the TCP client interface defined in client_tcp.h.
+ * See client_tcp.h for detailed API documentation.
+ */
 #include "client_tcp.h"
 
 #include <errno.h>

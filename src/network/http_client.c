@@ -1,3 +1,10 @@
+/**
+ * @file http_client.c
+ * @brief HTTP client implementation
+ *
+ * Implementation of the HTTP client interface defined in http_client.h.
+ * See http_client.h for detailed API documentation.
+ */
 #include "http_client.h"
 
 #include <ctype.h>

@@ -1,3 +1,15 @@
+/**
+ * @file weather_client.c
+ * @brief Weather API client implementation
+ *
+ * Implementation of the weather API client interface defined in
+ * weather_client.h. This module handles HTTP communication with the weather API
+ * server, manages response caching with different TTL values per endpoint, and
+ * provides JSON parsing and validation of API responses.
+ *
+ * See weather_client.h for detailed API documentation.
+ */
+
 #include "weather_client.h"
 
 #include "../network/http_client.h"
@@ -7,10 +19,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#define TTL_WEATHER 300
-#define TTL_CITIES 3600
-#define TTL_HOMEPAGE 86400
 
 struct WeatherClient {
     HttpClient*  http;
