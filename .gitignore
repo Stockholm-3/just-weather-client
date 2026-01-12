@@ -33,3 +33,4 @@ Thumbs.db
 
 # Dependencies (will be created by symlink)
 lib/jansson
+docs/

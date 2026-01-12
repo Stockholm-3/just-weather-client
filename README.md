@@ -96,6 +96,13 @@ make lint-fix     # Fix lint issues
 make lint-ci      # CI lint (strict mode)
 ```
 
+### Documentation
+```bash
+doxygen           # Generate API documentation
+```
+
+The generated documentation will be available in `documentation/html/index.html`.
+
 ## Quick reference
 
 To view all available targets:

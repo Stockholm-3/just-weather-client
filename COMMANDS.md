@@ -1,19 +1,19 @@
-# Just Weather Client - Команди
+# Just Weather Client - Commands
 
-## Швидка довідка
+## Quick Reference
 
-### Початок роботи
+### Getting Started
 ```bash
-make install-lib    # Налаштувати бібліотеки (перший раз)
-make                # Скомпілювати
-make test           # Перевірити роботу
-make help           # Показати всі команди
+make install-lib    # Configure libraries (first time)
+make                # Compile
+make test           # Test work
+make help           # Show all commands
 ```
 
-### Компіляція
+### Compilation
 ```bash
-make                # Debug збірка
-make debug          # Debug збірка
+make                # Debug build
+make debug          # Debug build
 # Just Weather Client - Commands
 
 ## Quick reference

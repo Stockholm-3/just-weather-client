@@ -1,3 +1,11 @@
+/**
+ * @file http_client.c
+ * @brief HTTP client implementation
+ *
+ * Implementation of the HTTP client interface defined in http_client.h.
+ * See http_client.h for detailed API documentation.
+ */
+
 #include "http_client.h"
 
 #include <ctype.h>
@@ -6,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Internal helper functions
 static int parse_url(const char* url, char* hostname, int* port, char* path);
 static int send_request(HttpClient* client, const char* host, const char* path);
 static int receive_response(HttpClient* client);
