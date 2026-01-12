@@ -1,15 +1,3 @@
-/**
- * @file cli.c
- * @brief Command-line interface implementation
- *
- * Implementation of the CLI interface defined in cli.h. This module provides
- * both command-line and interactive modes for the weather client application.
- * It handles argument parsing, command execution, JSON output formatting,
- * and provides a REPL-style interactive interface.
- *
- * See cli.h for detailed API documentation.
- */
-
 #include "cli.h"
 
 #include <jansson.h>
@@ -17,12 +5,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Exit codes for different error types
-#define EXIT_INVALID_ARGS 1  ///< Invalid command-line arguments
-#define EXIT_NETWORK_ERROR 2 ///< Network communication error
-#define EXIT_SERVER_ERROR 3  ///< Server/API error
+#define EXIT_INVALID_ARGS 1
+#define EXIT_NETWORK_ERROR 2
+#define EXIT_SERVER_ERROR 3
 
-// Internal helper functions
 static void print_json(json_t* data);
 static int  parse_double(const char* str, double* out);
 static void process_command(WeatherClient* client, char* line);

@@ -1,11 +1,3 @@
-/**
- * @file client_tcp.c
- * @brief TCP client implementation
- *
- * Implementation of the TCP client interface defined in client_tcp.h.
- * See client_tcp.h for detailed API documentation.
- */
-
 #include "client_tcp.h"
 
 #include <errno.h>
@@ -37,7 +29,6 @@ void client_tcp_destroy(ClientTCP* tcp) {
 
 int client_tcp_connect(ClientTCP* tcp, const char* host, int port,
                        int timeout_ms) {
-
     if (!tcp || !host) {
         return -1;
     }
@@ -139,7 +130,6 @@ int client_tcp_send(ClientTCP* tcp, const void* data, size_t len) {
 }
 
 int client_tcp_recv(ClientTCP* tcp, void* buffer, size_t len, int timeout_ms) {
-
     if (!tcp || tcp->fd < 0 || !buffer) {
         return -1;
     }
