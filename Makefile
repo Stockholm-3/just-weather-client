@@ -179,13 +179,13 @@ valgrind: $(BIN)
 .PHONY: run
 run: $(BIN)
 	@echo "Running $(BIN)..."
-	@./$(BIN)
+	@./$(BIN) weather Stockholm SE
 
 # Test client with example coordinates (Stockholm)
 .PHONY: test
 test: $(BIN)
 	@echo "Testing client with Stockholm weather..."
-	@./$(BIN) current 59.33 18.07
+	@./$(BIN) weather Stockholm SE
 
 # Test weather by city name
 .PHONY: test-city

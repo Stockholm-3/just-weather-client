@@ -28,6 +28,15 @@
 #include "api/weather_client.h"
 
 /**
+ * @brief Command result structure
+ */
+typedef struct {
+    char* response;
+    int status_code;
+    int completed;
+} CommandResult;
+
+/**
  * @brief Prints usage information and available commands
  *
  * Displays a comprehensive help message showing all available commands,
@@ -76,9 +85,6 @@ void cli_print_usage(const char* prog_name);
  *
  * The function runs until the user types 'quit', 'exit', 'q', or EOF (Ctrl+D).
  *
- * @param client Pointer to the WeatherClient to use for all requests.
- *               Must be a valid, initialized client.
- *
  * @note This function is blocking and will not return until the user exits
  *       interactive mode or an unrecoverable error occurs.
  *
@@ -89,9 +95,9 @@ void cli_print_usage(const char* prog_name);
  *
  * @par Example:
  * @code
- * WeatherClient *client = weather_client_create("localhost", 10680);
- * cli_interactive_mode(client);
- * weather_client_destroy(client);
+ * weather_client_init("http://localhost:10680/v1");
+ * cli_interactive_mode();
+ * weather_client_cleanup();
  * @endcode
  *
  * @par Interactive session example:
@@ -109,7 +115,7 @@ void cli_print_usage(const char* prog_name);
  * Goodbye!
  * @endcode
  */
-void cli_interactive_mode();
+int cli_interactive_mode(void);
 
 /**
  * @brief Executes a command based on command-line arguments
@@ -193,6 +199,6 @@ void cli_interactive_mode();
  * ./just-weather-client echo
  * @endcode
  */
-int cli_execute_command(WeatherClient* client, int argc, char* argv[]);
+int cli_execute_command(int argc, char* argv[]);
 
 #endif

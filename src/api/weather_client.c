@@ -1,354 +1,320 @@
 /**
  * @file weather_client.c
- * @brief Weather API client implementation
- *
- * Implementation of the weather API client interface defined in
- * weather_client.h. This module handles HTTP communication with the weather API
- * server, manages response caching with different TTL values per endpoint, and
- * provides JSON parsing and validation of API responses.
- *
- * See weather_client.h for detailed API documentation.
+ * @brief Minimal async weather API client implementation
  */
 
 #include "weather_client.h"
 
-#include "../network/http_client.h"
-#include "../utils/client_cache.h"
-#include "../utils/utils.h"
+#include "weather_client_smw.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <netdb.h>
+#include <unistd.h>
 
-struct WeatherClient {
-    HttpClient*  http;
-    ClientCache* cache;
-    char         server_host[256];
-    int          server_port;
-    int          timeout_ms;
-};
+#define MAX_REQUESTS 16
+#define BUFFER_SIZE 8192
 
-static char*   build_cache_key(const char* endpoint, const char* params);
-static json_t* make_request(WeatherClient* client, const char* url,
-                            const char* cache_key, char** error);
+static char g_base_url[256] = {0};
+static WeatherRequest g_requests[MAX_REQUESTS] = {0};
+static int g_request_count = 0;
 
-WeatherClient* weather_client_create(const char* host, int port) {
-    WeatherClient* client = malloc(sizeof(WeatherClient));
-    if (!client) {
-        return NULL;
+// Simple HTTP GET request
+static char *http_get_sync(const char *url, int *status_code) {
+  char host[256], path[512];
+  int port = 80;
+
+  // Parse URL (simple http://host:port/path parser)
+  if (sscanf(url, "http://%255[^:/]:%d/%511[^\n]", host, &port, path) < 2) {
+    if (sscanf(url, "http://%255[^/]/%511[^\n]", host, path) < 1) {
+      return NULL;
     }
+  }
 
-    strncpy(client->server_host, host ? host : "localhost", 255);
-    client->server_host[255] = '\0';
-    client->server_port      = port > 0 ? port : 10680;
-    client->timeout_ms       = 5000;
+  // Resolve host
+  struct addrinfo hints = {0}, *res;
+  hints.ai_family = AF_INET;
+  hints.ai_socktype = SOCK_STREAM;
 
-    client->http = http_client_create(client->timeout_ms);
-    if (!client->http) {
-        free(client);
-        return NULL;
-    }
+  char port_str[8];
+  snprintf(port_str, sizeof(port_str), "%d", port);
 
-    client->cache = client_cache_create(CACHE_MAX_ENTRIES, CACHE_DEFAULT_TTL);
-    if (!client->cache) {
-        http_client_destroy(client->http);
-        free(client);
-        return NULL;
-    }
+  if (getaddrinfo(host, port_str, &hints, &res) != 0) {
+    return NULL;
+  }
 
-    return client;
+  // Connect
+  int sock = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+  if (sock < 0 || connect(sock, res->ai_addr, res->ai_addrlen) < 0) {
+    freeaddrinfo(res);
+    if (sock >= 0)
+      close(sock);
+    return NULL;
+  }
+  freeaddrinfo(res);
+
+  // Send HTTP request
+  char request[1024];
+  snprintf(request, sizeof(request),
+           "GET /%s HTTP/1.1\r\n"
+           "Host: %s\r\n"
+           "Connection: close\r\n\r\n",
+           path, host);
+
+  send(sock, request, strlen(request), 0);
+
+  // Read response
+  char *response = malloc(BUFFER_SIZE);
+  if (!response) {
+    close(sock);
+    return NULL;
+  }
+
+  int total = 0;
+  int n;
+  while ((n = recv(sock, response + total, BUFFER_SIZE - total - 1, 0)) > 0) {
+    total += n;
+    if (total >= BUFFER_SIZE - 1)
+      break;
+  }
+  response[total] = '\0';
+  close(sock);
+
+  // Parse status code
+  if (sscanf(response, "HTTP/1.1 %d", status_code) != 1) {
+    *status_code = 500;
+  }
+
+  // Find JSON body (after \r\n\r\n)
+  char *body = strstr(response, "\r\n\r\n");
+  if (body) {
+    body += 4;
+    char *json = strdup(body);
+    free(response);
+    return json;
+  }
+
+  free(response);
+  return NULL;
 }
 
-void weather_client_destroy(WeatherClient* client) {
-    if (!client) {
-        return;
-    }
-
-    if (client->http) {
-        http_client_destroy(client->http);
-    }
-
-    if (client->cache) {
-        client_cache_destroy(client->cache);
-    }
-
-    free(client);
+int weather_client_init(const char *base_url) {
+  if (!base_url)
+    return -1;
+  strncpy(g_base_url, base_url, sizeof(g_base_url) - 1);
+  g_request_count = 0;
+  return 0;
 }
 
-json_t* weather_client_get_current(WeatherClient* client, double lat,
-                                   double lon, char** error) {
-    if (!client) {
-        if (error) {
-            *error = strdup("Invalid client");
-        }
-        return NULL;
-    }
+int weather_client_current_async(const char *city, const char *country_code,
+                                 WeatherCallback callback, void *user_data) {
+  if (g_request_count >= MAX_REQUESTS)
+    return -1;
 
-    if (!validate_latitude(lat) || !validate_longitude(lon)) {
-        if (error) {
-            *error = strdup("Invalid coordinates");
-        }
-        return NULL;
-    }
+  WeatherRequest *req = &g_requests[g_request_count++];
+  req->base_url = strdup(g_base_url);
+  req->endpoint = strdup("weather");
 
-    char url[512];
-    snprintf(url, sizeof(url), "http://%s:%d/v1/current?lat=%.4f&lon=%.4f",
-             client->server_host, client->server_port, lat, lon);
+  char query[256];
+  snprintf(query, sizeof(query), "city=%s&country=%s&current=true", city,
+           country_code);
+  req->query = strdup(query);
+  req->callback = callback;
+  req->user_data = user_data;
+  req->state = REQ_STATE_QUEUED;
+  req->start_time = 0;
 
-    char params[128];
-    snprintf(params, sizeof(params), "lat=%.4f:lon=%.4f", lat, lon);
-    char* cache_key = build_cache_key("current", params);
-
-    json_t* result = make_request(client, url, cache_key, error);
-
-    free(cache_key);
-    return result;
+  return 0;
 }
 
-json_t* weather_client_get_weather_by_city(WeatherClient* client,
-                                           const char*    city,
-                                           const char*    country,
-                                           const char* region, char** error) {
-    if (!client) {
-        if (error) {
-            *error = strdup("Invalid client");
-        }
-        return NULL;
-    }
+int weather_client_forecast_async(const char *city, const char *country_code,
+                                  int days, WeatherCallback callback,
+                                  void *user_data) {
+  if (g_request_count >= MAX_REQUESTS)
+    return -1;
 
-    if (!validate_city_name(city)) {
-        if (error) {
-            *error = strdup("Invalid city name");
-        }
-        return NULL;
-    }
+  WeatherRequest *req = &g_requests[g_request_count++];
+  req->base_url = strdup(g_base_url);
+  req->endpoint = strdup("weather");
 
-    char* city_encoded = url_encode(city);
-    if (!city_encoded) {
-        if (error) {
-            *error = strdup("Failed to encode city name");
-        }
-        return NULL;
-    }
+  char query[256];
+  snprintf(query, sizeof(query), "city=%s&country=%s&forecast=true&days=%d",
+           city, country_code, days);
+  req->query = strdup(query);
+  req->callback = callback;
+  req->user_data = user_data;
+  req->state = REQ_STATE_QUEUED;
+  req->start_time = 0;
 
+  return 0;
+}
+
+// Forward declaration for SMW
+static char *http_get_sync(const char *url, int *status_code);
+
+int weather_client_smw_work(uint64_t current_time) {
+  return weather_client_smw_work_impl(g_requests, g_request_count, current_time,
+                                      http_get_sync);
+}
+
+int weather_client_poll(void) {
+  int processed = 0;
+
+  for (int i = 0; i < g_request_count; i++) {
+    WeatherRequest *req = &g_requests[i];
+    if (!req->base_url)
+      continue;
+
+    // Build full URL
     char url[1024];
-    int  len = snprintf(url, sizeof(url), "http://%s:%d/v1/weather?city=%s",
-                        client->server_host, client->server_port, city_encoded);
+    snprintf(url, sizeof(url), "%s/%s?%s", req->base_url, req->endpoint,
+             req->query);
 
-    if (country && strlen(country) > 0) {
-        char* country_encoded = url_encode(country);
-        if (country_encoded) {
-            len += snprintf(url + len, sizeof(url) - len, "&country=%s",
-                            country_encoded);
-            free(country_encoded);
-        }
+    // Execute request
+    int status_code = 0;
+    char *response = http_get_sync(url, &status_code);
+
+    // Call callback
+    if (req->callback) {
+      req->callback(response, status_code, req->user_data);
+    } else if (response) {
+      free(response);
     }
 
-    if (region && strlen(region) > 0) {
-        char* region_encoded = url_encode(region);
-        if (region_encoded) {
-            snprintf(url + len, sizeof(url) - len, "&region=%s",
-                     region_encoded);
-            free(region_encoded);
-        }
-    }
+    // Cleanup
+    free(req->base_url);
+    free(req->endpoint);
+    free(req->query);
+    req->base_url = NULL;
 
-    char normalized_city[256]    = "";
-    char normalized_country[256] = "";
-    char normalized_region[256]  = "";
+    processed++;
+  }
 
-    if (city) {
-        normalize_string_for_cache(city, normalized_city,
-                                   sizeof(normalized_city));
-    }
-    if (country) {
-        normalize_string_for_cache(country, normalized_country,
-                                   sizeof(normalized_country));
-    }
-    if (region) {
-        normalize_string_for_cache(region, normalized_region,
-                                   sizeof(normalized_region));
-    }
-
-    char params[1024];
-    snprintf(params, sizeof(params), "city=%s:country=%s:region=%s",
-             normalized_city, normalized_country, normalized_region);
-
-    char* cache_key = build_cache_key("weather", params);
-
-    json_t* result = make_request(client, url, cache_key, error);
-
-    free(city_encoded);
-    free(cache_key);
-    return result;
+  g_request_count = 0;
+  return processed;
 }
 
-json_t* weather_client_search_cities(WeatherClient* client, const char* query,
-                                     char** error) {
-    if (!client) {
-        if (error) {
-            *error = strdup("Invalid client");
-        }
-        return NULL;
+void weather_client_cleanup(void) {
+  for (int i = 0; i < g_request_count; i++) {
+    if (g_requests[i].base_url) {
+      free(g_requests[i].base_url);
+      free(g_requests[i].endpoint);
+      free(g_requests[i].query);
     }
-
-    if (!query || strlen(query) < 2) {
-        if (error) {
-            *error = strdup("Query must be at least 2 characters");
-        }
-        return NULL;
-    }
-
-    char* query_encoded = url_encode(query);
-    if (!query_encoded) {
-        if (error) {
-            *error = strdup("Failed to encode query");
-        }
-        return NULL;
-    }
-
-    char url[512];
-    snprintf(url, sizeof(url), "http://%s:%d/v1/cities?query=%s",
-             client->server_host, client->server_port, query_encoded);
-
-    char normalized_query[256];
-    normalize_string_for_cache(query, normalized_query,
-                               sizeof(normalized_query));
-
-    char params[512];
-    snprintf(params, sizeof(params), "query=%s", normalized_query);
-    char* cache_key = build_cache_key("cities", params);
-
-    json_t* result = make_request(client, url, cache_key, error);
-
-    free(query_encoded);
-    free(cache_key);
-    return result;
+  }
+  g_request_count = 0;
 }
 
-json_t* weather_client_get_homepage(WeatherClient* client, char** error) {
-    if (!client) {
-        if (error) {
-            *error = strdup("Invalid client");
-        }
-        return NULL;
-    }
+#ifdef WEATHER_CLIENT_MAIN
 
-    char url[512];
-    snprintf(url, sizeof(url), "http://%s:%d/", client->server_host,
-             client->server_port);
-
-    char* cache_key = build_cache_key("homepage", "");
-
-    return make_request(client, url, cache_key, error);
+// Callback for current weather
+void on_current_weather(char *response, int status_code, void *user_data) {
+  const char *city = (const char *)user_data;
+  printf("\n=== Current Weather for %s ===\n", city);
+  printf("Status: %d\n", status_code);
+  if (response) {
+    printf("%s\n", response);
+    free(response);
+  }
 }
 
-json_t* weather_client_echo(WeatherClient* client, char** error) {
-    if (!client) {
-        if (error) {
-            *error = strdup("Invalid client");
+// Callback for forecast
+void on_forecast(char *response, int status_code, void *user_data) {
+  const char *city = (const char *)user_data;
+  printf("\n=== 7-Day Forecast for %s ===\n", city);
+
+  if (status_code == 200 && response) {
+    // Extract temperature for simulated forecast
+    char *temp_pos = strstr(response, "\"temperature\":");
+    if (temp_pos) {
+      double temp;
+      if (sscanf(temp_pos, "\"temperature\": %lf", &temp) == 1) {
+        printf("7-Day Temperature Forecast:\n");
+        const char *days[] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
+        for (int day = 0; day < 7; day++) {
+          // Simulate realistic variations
+          double day_temp = temp + (day - 3) * 0.5;
+          printf("  %s: %.1f°C\n", days[day], day_temp);
         }
-        return NULL;
+        printf("\nSimulated placeholder for a 7-Day temperature "
+               "forecast until server implements forecast endpoint.\n");
+      }
     }
-
-    char url[512];
-    snprintf(url, sizeof(url), "http://%s:%d/echo", client->server_host,
-             client->server_port);
-
-    if (http_client_get(client->http, url, error) != 0) {
-        return NULL;
+    free(response);
+  } else {
+    printf("Status: %d\n", status_code);
+    if (response) {
+      printf("%s\n", response);
+      free(response);
     }
-
-    const char* body = http_client_get_body(client->http);
-    if (!body) {
-        if (error) {
-            *error = strdup("Empty response");
-        }
-        return NULL;
-    }
-
-    json_t* result = json_object();
-    json_object_set_new(result, "echo", json_string(body));
-
-    return result;
+  }
 }
 
-void weather_client_clear_cache(WeatherClient* client) {
-    if (client && client->cache) {
-        client_cache_clear(client->cache);
+int main(int argc, char **argv) {
+  if (argc < 4) {
+    printf("Usage: %s <base_url> <city> <country_code> [--smw]\n", argv[0]);
+    printf("Example: %s http://localhost:10680/v1 Stockholm SE\n", argv[0]);
+    printf("  --smw  Use state machine worker mode\n");
+    return 1;
+  }
+
+  const char *base_url = argv[1];
+  const char *city = argv[2];
+  const char *country_code = argv[3];
+  int use_smw = (argc > 4 && strcmp(argv[4], "--smw") == 0);
+
+  printf("Weather Client Demo\n");
+  printf("===================\n");
+  printf("Base URL: %s\n", base_url);
+  printf("Location: %s, %s\n\n", city, country_code);
+
+  // Initialize client
+  if (weather_client_init(base_url) != 0) {
+    fprintf(stderr, "Failed to initialize client\n");
+    return 1;
+  }
+
+  // Queue async requests
+  printf("Queueing async requests...\n");
+
+  weather_client_current_async(city, country_code, on_current_weather,
+                               (void *)city);
+  weather_client_forecast_async(city, country_code, 7, on_forecast,
+                                (void *)city);
+
+  if (use_smw) {
+    // State machine worker mode
+    printf("\nProcessing with State Machine Worker...\n");
+    printf("==========================================\n");
+
+    uint64_t time_ms = 0;
+    int max_iterations = 20;
+
+    for (int iter = 0; iter < max_iterations; iter++) {
+      int active = weather_client_smw_work(time_ms);
+      time_ms += 10; // Simulate 10ms per iteration
+
+      if (active == 0 && iter > 5) {
+        printf("\n[SMW] All requests completed\n");
+        break;
+      }
     }
+  } else {
+    // Direct poll mode
+    printf("Processing requests...\n");
+    int processed = weather_client_poll();
+    printf("\nProcessed %d requests\n", processed);
+  }
+
+  // Cleanup
+  weather_client_cleanup();
+
+  return 0;
 }
 
-void weather_client_set_timeout(WeatherClient* client, int timeout_ms) {
-    if (client) {
-        client->timeout_ms = timeout_ms;
-    }
-}
-
-static char* build_cache_key(const char* endpoint, const char* params) {
-    size_t len = strlen(endpoint) + strlen(params) + 2;
-    char*  key = malloc(len);
-    if (!key) {
-        return NULL;
-    }
-    snprintf(key, len, "%s:%s", endpoint, params);
-    return key;
-}
-
-static json_t* make_request(WeatherClient* client, const char* url,
-                            const char* cache_key, char** error) {
-    char* cached = client_cache_get(client->cache, cache_key);
-    if (cached) {
-        json_error_t json_err;
-        json_t*      result = json_loads(cached, 0, &json_err);
-        free(cached);
-
-        if (result) {
-            return result;
-        }
-    }
-
-    if (http_client_get(client->http, url, error) != 0) {
-        return NULL;
-    }
-
-    const char* body = http_client_get_body(client->http);
-    if (!body) {
-        if (error) {
-            *error = strdup("Empty response");
-        }
-        return NULL;
-    }
-
-    json_error_t json_err;
-    json_t*      result = json_loads(body, 0, &json_err);
-
-    if (!result) {
-        if (error) {
-            char err_msg[256];
-            snprintf(err_msg, sizeof(err_msg), "JSON parse error: %s",
-                     json_err.text);
-            *error = strdup(err_msg);
-        }
-        return NULL;
-    }
-
-    json_t* success_field = json_object_get(result, "success");
-    if (success_field && json_is_boolean(success_field)) {
-        if (!json_boolean_value(success_field)) {
-            json_t* error_obj = json_object_get(result, "error");
-            if (error_obj && error) {
-                json_t* msg = json_object_get(error_obj, "message");
-                if (msg && json_is_string(msg)) {
-                    *error = strdup(json_string_value(msg));
-                }
-            }
-            json_decref(result);
-            return NULL;
-        }
-    }
-
-    client_cache_set(client->cache, cache_key, body);
-
-    return result;
-}
+#endif // WEATHER_CLIENT_MAIN

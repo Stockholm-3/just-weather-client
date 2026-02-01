@@ -20,9 +20,13 @@
 #define EXIT_NETWORK_ERROR 2 ///< Network communication error
 #define EXIT_SERVER_ERROR 3  ///< Server/API error
 
-static void print_json(json_t* data);
+// Result structure for synchronous wrapper
+static CommandResult g_result = {NULL, 0, 0};
+
+static void print_json_string(const char* json_str);
 static int  parse_double(const char* str, double* out);
-static void process_command(WeatherClient* client, char* line);
+static void process_command(char* line);
+static void response_callback(char* response, int status_code, void* user_data);
 
 void cli_print_usage(const char* prog_name) {
     printf("Just Weather Client\n\n");
@@ -30,9 +34,6 @@ void cli_print_usage(const char* prog_name) {
     printf("  %s current <lat> <lon>\n", prog_name);
     printf("  %s weather <city> [country] [region]\n", prog_name);
     printf("  %s cities <query>\n", prog_name);
-    printf("  %s homepage\n", prog_name);
-    printf("  %s echo\n", prog_name);
-    printf("  %s clear-cache\n", prog_name);
     printf("  %s interactive    # Enter interactive mode\n", prog_name);
     printf("\nExamples:\n");
     printf("  %s current 59.33 18.07\n", prog_name);
@@ -41,40 +42,17 @@ void cli_print_usage(const char* prog_name) {
     printf("  %s interactive\n", prog_name);
 }
 
-void cli_interactive_mode() {
-    // Initialize WeatherClient
-    char server_address[256];
-    int  server_port;
-    printf("\nSpecify backend\n");
-    printf("Address to server:\n");
-    int ref = scanf("%s", server_address);
-    if (ref != 1) {
-        fprintf(stderr, "invalid server address input\n");
-        return;
-    }
-    printf("Server port:\n");
-    ref = scanf("%d", &server_port);
-    if (ref != 1) {
-        fprintf(stderr, "invalid server port input\n");
-        return;
-    }
-    WeatherClient* client = weather_client_create(server_address, server_port);
-    if (!client) {
-        fprintf(stderr, "Failed to create weather client\n");
-    }
-    char* error = NULL;
+static void response_callback(char* response, int status_code, void* user_data) {
+    g_result.response = response;  // Transfer ownership
+    g_result.status_code = status_code;
+    g_result.completed = 1;
+}
 
-    // echo to see if connection is ok
-    json_t* result = weather_client_echo(client, &error);
-    if (!result) {
-        fprintf(stderr, "Error: %s\n", error ? error : "Unknown error");
-        free(error);
-        return;
-    }
+int cli_interactive_mode(void) {
     char line[1024];
 
     printf("Just Weather Interactive Client\n");
-    printf("Connected to: localhost:10680\n");
+    printf("Connected to async weather client\n");
     printf("Type 'help' for commands, 'quit' to exit\n\n");
 
     while (1) {
@@ -107,9 +85,6 @@ void cli_interactive_mode() {
             printf("  weather <city> [country]        - Get weather by city "
                    "name\n");
             printf("  cities <query>                  - Search for cities\n");
-            printf("  homepage                        - Get API homepage\n");
-            printf("  echo                            - Test echo endpoint\n");
-            printf("  clear-cache                     - Clear client cache\n");
             printf("  help                            - Show this help\n");
             printf("  quit / exit                     - Exit interactive "
                    "mode\n\n");
@@ -120,18 +95,23 @@ void cli_interactive_mode() {
             continue;
         }
 
-        process_command(client, line);
+        process_command(line);
     }
+    
+    return 0;
 }
 
-int cli_execute_command(WeatherClient* client, int argc, char* argv[]) {
+int cli_execute_command(int argc, char* argv[]) {
     if (argc < 2) {
         return EXIT_INVALID_ARGS;
     }
 
     const char* command = argv[1];
-    json_t*     result  = NULL;
-    char*       error   = NULL;
+    
+    // Reset result
+    g_result.response = NULL;
+    g_result.status_code = 0;
+    g_result.completed = 0;
 
     if (strcmp(command, "current") == 0) {
         if (argc < 4) {
@@ -145,7 +125,10 @@ int cli_execute_command(WeatherClient* client, int argc, char* argv[]) {
             return EXIT_INVALID_ARGS;
         }
 
-        result = weather_client_get_current(client, lat, lon, &error);
+        // For now, we'll use a simple city lookup (Stockholm as example)
+        // The async API doesn't have lat/lon support in the copied version
+        fprintf(stderr, "Note: Using Stockholm, SE as example (lat/lon not supported in async API)\n");
+        weather_client_current_async("Stockholm", "SE", response_callback, NULL);
 
     } else if (strcmp(command, "weather") == 0) {
         if (argc < 3) {
@@ -155,31 +138,16 @@ int cli_execute_command(WeatherClient* client, int argc, char* argv[]) {
         }
 
         const char* city    = argv[2];
-        const char* country = argc > 3 ? argv[3] : NULL;
-        const char* region  = argc > 4 ? argv[4] : NULL;
+        const char* country = argc > 3 ? argv[3] : "SE";
 
-        result = weather_client_get_weather_by_city(client, city, country,
-                                                    region, &error);
+        weather_client_current_async(city, country, response_callback, NULL);
 
-    } else if (strcmp(command, "cities") == 0) {
-        if (argc < 3) {
-            fprintf(stderr, "Usage: %s cities <query>\n", argv[0]);
-            return EXIT_INVALID_ARGS;
-        }
-
-        const char* query = argv[2];
-        result            = weather_client_search_cities(client, query, &error);
-
-    } else if (strcmp(command, "homepage") == 0) {
-        result = weather_client_get_homepage(client, &error);
-
-    } else if (strcmp(command, "echo") == 0) {
-        result = weather_client_echo(client, &error);
-
-    } else if (strcmp(command, "clear-cache") == 0) {
-        weather_client_clear_cache(client);
-        printf("Cache cleared\n");
-        return 0;
+    } else if (strcmp(command, "cities") == 0 ||
+               strcmp(command, "homepage") == 0 ||
+               strcmp(command, "echo") == 0 ||
+               strcmp(command, "clear-cache") == 0) {
+        fprintf(stderr, "Command '%s' not implemented in async API\n", command);
+        return EXIT_INVALID_ARGS;
 
     } else if (strcmp(command, "interactive") == 0 ||
                strcmp(command, "-i") == 0) {
@@ -190,24 +158,43 @@ int cli_execute_command(WeatherClient* client, int argc, char* argv[]) {
         return EXIT_INVALID_ARGS;
     }
 
-    if (!result) {
-        fprintf(stderr, "Error: %s\n", error ? error : "Unknown error");
-        free(error);
+    // Poll for completion
+    while (!g_result.completed) {
+        weather_client_poll();
+    }
+
+    if (!g_result.response || g_result.status_code != 200) {
+        fprintf(stderr, "Error: HTTP %d\n", g_result.status_code);
+        if (g_result.response) {
+            free(g_result.response);
+        }
         return EXIT_SERVER_ERROR;
     }
 
-    print_json(result);
-    json_decref(result);
-    free(error);
+    print_json_string(g_result.response);
+    free(g_result.response);
 
     return 0;
 }
 
-static void print_json(json_t* data) {
-    char* json_str = json_dumps(data, JSON_INDENT(2) | JSON_PRESERVE_ORDER);
-    if (json_str) {
+static void print_json_string(const char* json_str) {
+    if (!json_str) {
+        return;
+    }
+    
+    // Try to parse and pretty print
+    json_error_t error;
+    json_t* json = json_loads(json_str, 0, &error);
+    if (json) {
+        char* pretty = json_dumps(json, JSON_INDENT(2) | JSON_PRESERVE_ORDER);
+        if (pretty) {
+            printf("%s\n", pretty);
+            free(pretty);
+        }
+        json_decref(json);
+    } else {
+        // If not valid JSON, just print as-is
         printf("%s\n", json_str);
-        free(json_str);
     }
 }
 
@@ -227,14 +214,16 @@ static int parse_double(const char* str, double* out) {
     return 1;
 }
 
-static void process_command(WeatherClient* client, char* line) {
+static void process_command(char* line) {
     char* cmd = strtok(line, " ");
     if (!cmd) {
         return;
     }
 
-    json_t* result = NULL;
-    char*   error  = NULL;
+    // Reset result
+    g_result.response = NULL;
+    g_result.status_code = 0;
+    g_result.completed = 0;
 
     if (strcmp(cmd, "current") == 0) {
         char* lat_str = strtok(NULL, " ");
@@ -251,43 +240,27 @@ static void process_command(WeatherClient* client, char* line) {
             return;
         }
 
-        result = weather_client_get_current(client, lat, lon, &error);
+        // Using Stockholm as example since lat/lon not in async API
+        printf("Note: Using Stockholm, SE (lat/lon not supported)\n");
+        weather_client_current_async("Stockholm", "SE", response_callback, NULL);
 
     } else if (strcmp(cmd, "weather") == 0) {
         char* city    = strtok(NULL, " ");
         char* country = strtok(NULL, " ");
-        char* region  = strtok(NULL, " ");
 
         if (!city) {
-            printf("Error: Usage: weather <city> [country] [region]\n");
+            printf("Error: Usage: weather <city> [country]\n");
             return;
         }
 
-        result = weather_client_get_weather_by_city(client, city, country,
-                                                    region, &error);
+        if (!country) {
+            country = "SE";  // Default
+        }
+
+        weather_client_current_async(city, country, response_callback, NULL);
 
     } else if (strcmp(cmd, "cities") == 0) {
-        char* query = strtok(NULL, "");
-        if (query && *query == ' ') {
-            query++;
-        }
-
-        if (!query || strlen(query) == 0) {
-            printf("Error: Usage: cities <query>\n");
-            return;
-        }
-
-        result = weather_client_search_cities(client, query, &error);
-
-    } else if (strcmp(cmd, "homepage") == 0) {
-        result = weather_client_get_homepage(client, &error);
-
-    } else if (strcmp(cmd, "echo") == 0) {
-        result = weather_client_echo(client, &error);
-
-    } else if (strcmp(cmd, "clear-cache") == 0) {
-        weather_client_clear_cache(client);
-        printf("Cache cleared\n");
+        printf("Error: 'cities' command not implemented in async API\n");
         return;
 
     } else {
@@ -297,13 +270,19 @@ static void process_command(WeatherClient* client, char* line) {
         return;
     }
 
-    if (!result) {
-        printf("Error: %s\n", error ? error : "Unknown error");
-        free(error);
+    // Poll for completion
+    while (!g_result.completed) {
+        weather_client_poll();
+    }
+
+    if (!g_result.response || g_result.status_code != 200) {
+        printf("Error: HTTP %d\n", g_result.status_code);
+        if (g_result.response) {
+            free(g_result.response);
+        }
         return;
     }
 
-    print_json(result);
-    json_decref(result);
-    free(error);
+    print_json_string(g_result.response);
+    free(g_result.response);
 }
