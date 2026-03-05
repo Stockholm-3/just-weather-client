@@ -32,6 +32,8 @@ void cli_print_usage(const char* prog_name) {
     printf("  %s cities <query>\n", prog_name);
     printf("  %s homepage\n", prog_name);
     printf("  %s echo\n", prog_name);
+    printf("  %s getplane <city> <price>    # price: SE1, SE2, SE3 or SE4\n",
+           prog_name);
     printf("  %s clear-cache\n", prog_name);
     printf("  %s interactive    # Enter interactive mode\n", prog_name);
     printf("\nExamples:\n");
@@ -109,6 +111,8 @@ void cli_interactive_mode() {
             printf("  cities <query>                  - Search for cities\n");
             printf("  homepage                        - Get API homepage\n");
             printf("  echo                            - Test echo endpoint\n");
+            printf("  getplane <city> <price>         - Get energy plan "
+                   "(price: SE1-SE4)\n");
             printf("  clear-cache                     - Clear client cache\n");
             printf("  help                            - Show this help\n");
             printf("  quit / exit                     - Exit interactive "
@@ -175,6 +179,14 @@ int cli_execute_command(WeatherClient* client, int argc, char* argv[]) {
 
     } else if (strcmp(command, "echo") == 0) {
         result = weather_client_echo(client, &error);
+
+    } else if (strcmp(command, "getplane") == 0) {
+        if (argc < 4) {
+            fprintf(stderr, "Usage: %s getplane <city> <price>\n", argv[0]);
+            fprintf(stderr, "Price must be SE1, SE2, SE3 or SE4\n");
+            return EXIT_INVALID_ARGS;
+        }
+        result = weather_client_get_plane(client, argv[2], argv[3], &error);
 
     } else if (strcmp(command, "clear-cache") == 0) {
         weather_client_clear_cache(client);
@@ -284,6 +296,15 @@ static void process_command(WeatherClient* client, char* line) {
 
     } else if (strcmp(cmd, "echo") == 0) {
         result = weather_client_echo(client, &error);
+
+    } else if (strcmp(cmd, "getplane") == 0) {
+        char* city  = strtok(NULL, " ");
+        char* price = strtok(NULL, " ");
+        if (!city || !price) {
+            printf("Error: Usage: getplane <city> <price>  (price: SE1-SE4)\n");
+            return;
+        }
+        result = weather_client_get_plane(client, city, price, &error);
 
     } else if (strcmp(cmd, "clear-cache") == 0) {
         weather_client_clear_cache(client);
